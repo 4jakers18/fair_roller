@@ -2,14 +2,16 @@ version: "3.8"
 
 services:
   image-host:
-    build: ./image-host          # points to Dockerfile directory
+    build: ./image-host
     container_name: image-host
     ports:
-      - "8420:80"                  # http://HOST_IP:8420/image.jpg
+      - "8420:80"                # http://<docker-host>:8420/
+    volumes:
+      - uploads:/uploads         # persist images
     networks: [ocr-net]
 
   ocr-processor:
-    build: ./ocr-processor         # points to Dockerfile directory
+    build: ./ocr-processor
     container_name: ocr-processor
     depends_on: [image-host]
     networks: [ocr-net]
@@ -17,3 +19,6 @@ services:
 networks:
   ocr-net:
     driver: bridge
+
+volumes:
+  uploads:                       # named volume lives on the Docker host
