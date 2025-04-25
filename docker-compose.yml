@@ -1,0 +1,21 @@
+version: "3.8"
+
+services:
+  image-host:
+    image: nginx:alpine            # tiny, battle-tested static server
+    container_name: image-host
+    volumes:
+      - ./image.jpg:/usr/share/nginx/html/image.jpg:ro
+    ports:
+      - "8420:80"                  # http://HOST_IP:8420/image.jpg
+    networks: [ocr-net]
+
+  ocr-processor:
+    build: ./ocr-processor         # points to Dockerfile directory
+    container_name: ocr-processor
+    depends_on: [image-host]
+    networks: [ocr-net]
+
+networks:
+  ocr-net:
+    driver: bridge
