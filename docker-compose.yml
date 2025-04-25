@@ -9,7 +9,7 @@ services:
     volumes:
       - uploads:/uploads         # persist images
     networks: [ocr-net]
-
+    
   ocr-processor:
     build: ./ocr-processor
     container_name: ocr-processor
@@ -22,3 +22,5 @@ networks:
 
 volumes:
   uploads:                       # named volume lives on the Docker host
+
+# add change to force portaner to actually update the stack lol
