@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   image-host:
-    image: nginx:alpine            # tiny, battle-tested static server
+    build: ./image-host          # points to Dockerfile directory
     container_name: image-host
     volumes:
       - ./image.jpg:/usr/share/nginx/html/image.jpg:ro
