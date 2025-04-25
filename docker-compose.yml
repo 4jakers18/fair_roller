@@ -4,8 +4,6 @@ services:
   image-host:
     build: ./image-host          # points to Dockerfile directory
     container_name: image-host
-    volumes:
-      - ./image.jpg:/usr/share/nginx/html/image.jpg:ro
     ports:
       - "8420:80"                  # http://HOST_IP:8420/image.jpg
     networks: [ocr-net]
