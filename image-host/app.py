@@ -45,4 +45,6 @@ def upload():
 
 @app.route("/uploads/<path:filename>")
 def uploaded_file(filename):
-    return send_from_directory(UPLOAD_DIR, filename, cache_timeout=0)
+    resp = send_from_directory(UPLOAD_DIR, filename)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
