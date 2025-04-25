@@ -1,8 +1,10 @@
 FROM python:3.12-slim
 
-# install deps and create a non-root user
-RUN pip install --no-cache-dir flask==3.0.2 werkzeug==3.0.1 && \
-    adduser --disabled-password --gecos '' appuser
+# install Flask + create appuser, then make + chown the uploads folder
+RUN pip install --no-cache-dir flask==3.0.2 werkzeug==3.0.1 \
+ && adduser --disabled-password --gecos '' appuser \
+ && mkdir /uploads \
+ && chown appuser:appuser /uploads
 
 WORKDIR /app
 COPY app.py .
