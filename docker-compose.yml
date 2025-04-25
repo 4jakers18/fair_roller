@@ -2,18 +2,26 @@ version: "3.8"
 
 services:
   image-host:
+    # 1) Give it a canonical image name…
+    image: 4jakers18/fair_roller_image-host:latest
+    # 2) …and point to your build context
     build: ./image-host
-    container_name: image-host
+    # 3) Force “always build” instead of pull-then-build-if-missing
+    pull_policy: build
+
     ports:
-      - "8420:80"                # http://<docker-host>:8420/
+      - "8420:80"
     volumes:
-      - uploads:/uploads         # persist images
+      - uploads:/uploads
     networks: [ocr-net]
-    
+
   ocr-processor:
+    image: 4jakers18/fair_roller_ocr-processor:latest
     build: ./ocr-processor
-    container_name: ocr-processor
-    depends_on: [image-host]
+    pull_policy: build
+
+    depends_on:
+      - image-host
     networks: [ocr-net]
 
 networks:
@@ -21,6 +29,4 @@ networks:
     driver: bridge
 
 volumes:
-  uploads:                       # named volume lives on the Docker host
-
-# add change to force portaner to actually update the stack lol
+  uploads:
