@@ -9,10 +9,9 @@
 #define SETTLE_MS    100
 
 // Wi-Fi credentials
-#define WIFI_SSID    "your-ssid"
-#define WIFI_PASS    "your-password"
+#include "secrets.h"   // used since this is a public repo <- be sure to make your own from the secrets.h.example
 
 // server info
-#define SERVER_HOST  "192.168.0.42"
+#define SERVER_HOST  "192.168.0.42" // Address of the server <- change to your server's IP
 #define SERVER_PORT  80
 #define WS_PATH      "/ws"
