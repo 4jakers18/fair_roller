@@ -1,1 +1,8 @@
 dicematcher/big_dataset/*
+dicematcher/new_dataset/*
+dicematcher/output_cnn/*
+*.h5
+*.png
+*.jpg
+*.jpeg
+*.bmp
