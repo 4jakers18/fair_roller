@@ -7,3 +7,7 @@ dicematcher/output_cnn/*
 *.jpeg
 *.bmp
 */venv/*
+ocr-processor/venv/*
+ocr-processor/uploads/*
+ocr-processor/__pycache__/
+*/.DS_Store

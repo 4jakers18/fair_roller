@@ -2,6 +2,9 @@
 #include "camera.h"
 #include <Arduino.h>
 
+int settleMs{100};    // from server
+int jpegQuality{12};  // from server
+framesize_t frameSize{FRAMESIZE_VGA}; // from server
 
 bool initCamera() {
   camera_config_t config;
@@ -27,10 +30,10 @@ bool initCamera() {
   config.pixel_format    = PIXFORMAT_JPEG;      // we want JPEGs
 
   // Frame parameters
-   config.frame_size      = FRAMESIZE_VGA;       // 640×480
+   config.frame_size      = frameSize;       // 640×480
  // config.frame_size= FRAMESIZE_UXGA;
-  config.jpeg_quality    = 4;                  // 0–63 lower = better
-  config.fb_count        = 1;                   // use 2 frame buffers (needs PSRAM)
+  config.jpeg_quality    = jpegQuality;                  // 0–63 lower = better
+  config.fb_count        = 2;              // use 2 frame buffers (needs PSRAM)
 
 
 // Image gets cropped on the server side.

@@ -8,6 +8,8 @@
 #include "camera.h"    // for camera_fb_t
 #include "config.h"    // for SERVER_HOST, SERVER_PORT, WS_PATH
 #include "state.h"     // for RunState
+#include <ArduinoJson.h>
+
 
 /// Call in setup(): connects to Wi-Fi and opens the WS link
 void initNetwork();

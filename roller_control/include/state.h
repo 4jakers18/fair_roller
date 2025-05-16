@@ -1,3 +1,4 @@
+// include/state.h
 #pragma once
 
 enum RunState {
@@ -10,3 +11,6 @@ enum RunState {
 };
 
 extern RunState state;
+
+extern int  seq;         // current roll index
+extern int  totalRolls;  // target # of rolls (from server)

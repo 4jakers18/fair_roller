@@ -8,8 +8,10 @@
 RunState state = DISCONNECTED;  // <-- the one-and-only definition
 
 // sequence counter
-static int seq = 0;
-static const int TOTAL_ROLLS = 10;
+int seq = 0;
+int totalRolls    = 10;      // from server
+
+
 
 // LED helper (assumes LED_PIN in config.h)
 static void setLED(bool on) {
@@ -88,11 +90,12 @@ case VERIFY_DIE: {
       Serial.println("Spinning...");
       auto frame = captureFrame();
       if (frame) {
+        delay(settleMs); 
         bool ok = uploadFrame(frame, seq);
         esp_camera_fb_return(frame);
         if (ok) {
           sendWsMsg("{\"evt\":\"step_ok\",\"seq\":" + String(seq) + "}");
-          if (++seq >= TOTAL_ROLLS) {
+          if (++seq >= totalRolls) {
             state = FINISHED;
           }
         }

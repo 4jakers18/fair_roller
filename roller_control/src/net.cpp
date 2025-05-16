@@ -1,6 +1,9 @@
 // src/net.cpp
+
 #include "net.h"
 #include "config.h"
+#include "state.h"         // for state, seq, totalRolls
+#include <ArduinoJson.h>   // JSON parsing
 
 static WebSocketsClient webSocket;
 
@@ -13,18 +16,55 @@ static void handleWsEvent(WStype_t type, uint8_t* payload, size_t length) {
       break;
 
     case WStype_TEXT: {
-      String msg = (char*)payload;
-      Serial.printf("→ WS msg: %s\n", msg.c_str());
-      if (msg.indexOf("\"evt\":\"ready\"") >= 0 ||
-          msg.indexOf("\"cmd\":\"start\"") >= 0) {
+      // Parse JSON in-place from the raw payload
+      DynamicJsonDocument doc(512);
+      auto err = deserializeJson(doc, payload, length);
+      if (err) {
+        Serial.printf("⚠️ JSON parse failed: %s\n", err.c_str());
+        return;
+      }
+
+      // Log the received message
+      Serial.print("→ WS msg: ");
+      serializeJson(doc, Serial);
+      Serial.println();
+
+      const char* cmd = doc["cmd"] | "";
+      if (strcmp(cmd, "start") == 0) {
+        // Extract dynamic run parameters (fall back to current values)
+        totalRolls  = doc["rolls"]        | totalRolls;
+        settleMs    = doc["settle_ms"]    | settleMs;
+        jpegQuality = doc["jpeg_quality"] | jpegQuality;
+
+        // Map frame_size string to ESP32 framesize_t
+        const char* fs = doc["frame_size"] | "VGA";
+        if      (strcmp(fs, "QVGA") == 0) frameSize = FRAMESIZE_QVGA;
+        else if (strcmp(fs, "UXGA") == 0) frameSize = FRAMESIZE_UXGA;
+        else                               frameSize = FRAMESIZE_VGA;
+
+        // Apply camera settings immediately
+        {
+          sensor_t *s = esp_camera_sensor_get();
+          s->set_framesize(s, frameSize);
+          s->set_quality(s, jpegQuality);
+        }
+
+        // Reset sequence and advance to VERIFY_DIE
+        seq   = 0;
         state = VERIFY_DIE;
         Serial.println("↪ state=VERIFY_DIE");
-      } else if (msg.indexOf("\"cmd\":\"pause\"") >= 0) {
+
+      } else if (strcmp(cmd, "pause") == 0) {
         state = PAUSED;
-      } else if (msg.indexOf("\"cmd\":\"resume\"") >= 0) {
+        Serial.println("↪ state=PAUSED");
+
+      } else if (strcmp(cmd, "resume") == 0) {
         state = SPINNING;
-      } else if (msg.indexOf("\"cmd\":\"stop\"") >= 0) {
+        Serial.println("↪ state=SPINNING");
+
+      } else if (strcmp(cmd, "stop") == 0) {
         state = FINISHED;
+        Serial.println("↪ state=FINISHED");
       }
       break;
     }
@@ -35,6 +75,7 @@ static void handleWsEvent(WStype_t type, uint8_t* payload, size_t length) {
       break;
 
     default:
+      // ignore other event types
       break;
   }
 }
@@ -70,39 +111,8 @@ bool uploadFrame(camera_fb_t* fb, int seq) {
   return (code == HTTP_CODE_OK);
 }
 
-
 void sendWsMsg(const String &msg) {
-  // WebSocketsClient::sendTXT needs a non-const String&, so make a copy
+  // WebSocketsClient::sendTXT wants a non-const String&
   String payload = msg;
   webSocket.sendTXT(payload);
-}
-
-
-  if (type != WStype_TEXT) return;
-  String msg = (char*)payload;
-
-  // try to parse JSON
-  StaticJsonDocument<256> doc;
-  auto err = deserializeJson(doc, msg);
-  if (!err && doc["cmd"] == "start") {
-    // pull out each field, falling back to previous value if missing
-    totalRolls  = doc["rolls"]       | totalRolls;
-    settleMs    = doc["settle_ms"]   | settleMs;
-    jpegQuality = doc["jpeg_quality"]| jpegQuality;
-    String fs   = doc["frame_size"]  | String("VGA");
-    // map string to enum
-    if (fs == "QVGA") frameSize = FRAMESIZE_QVGA;
-    else if (fs == "UXGA") frameSize = FRAMESIZE_UXGA;
-    else               frameSize = FRAMESIZE_VGA;
-
-    // apply camera changes immediately
-    sensor_t *s = esp_camera_sensor_get();
-    s->set_framesize(s, frameSize);
-    s->set_quality(s, jpegQuality);
-
-    // reset your sequence counter
-    seq = 0;
-    state = VERIFY_DIE;
-  }
-  // handle pause/resume/stop as before...
 }
