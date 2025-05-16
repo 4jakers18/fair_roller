@@ -6,3 +6,4 @@ dicematcher/output_cnn/*
 *.jpg
 *.jpeg
 *.bmp
+*/venv/*

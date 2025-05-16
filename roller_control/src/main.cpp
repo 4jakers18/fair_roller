@@ -1,93 +1,116 @@
-// src/main.cpp
-
 #include <Arduino.h>
-#include "camera.h"   // initCamera(), captureFrame()
-#include "motor.h"    // initMotor(), startSpin(), stopSpin(), waitForSpeed()
-#include "net.h"      // initNetwork(), wsLoop(), uploadFrame()
-#include "config.h"   // pin defs, WiFi creds, server URLs, timing
+#include "state.h"    
+#include "camera.h"
+#include "net.h"
+#include "config.h"
+#include "state.h"   
+
+RunState state = DISCONNECTED;  // <-- the one-and-only definition
+
+// sequence counter
+static int seq = 0;
+static const int TOTAL_ROLLS = 10;
 
 // LED helper (assumes LED_PIN in config.h)
 static void setLED(bool on) {
   digitalWrite(LED_PIN, on ? HIGH : LOW);
 }
 
-// Run states
-enum RunState {
-  DISCONNECTED,
-  CONNECTED,
-  VERIFY_DIE,
-  SPINNING,
-  PAUSED,
-  FINISHED
-};
-static RunState state = DISCONNECTED;
+// LED heartbeat
+static uint32_t lastBlink = 0;
+static bool     ledOn     = false;
 
 void setup() {
-  // Serial for debug
   Serial.begin(MONITOR_BAUD);
-
-  // Status LED
   pinMode(LED_PIN, OUTPUT);
   setLED(false);
-
-  // Init modules
-  initCamera();     // camera.h
-  // initMotor();      // motor.h
-  initNetwork();    // net.h  (starts Wi-Fi + WebSocket client)
+  initCamera();
+  initNetwork();
 }
 
 void loop() {
-  // Always pump network (WebSocket heartbeats, incoming cmds)
-  wsLoop();
+  wsLoop();  // pumps WS + invokes your handleWsEvent()
 
+  uint32_t now = millis();
   switch (state) {
     case DISCONNECTED:
-      // LED breathe / retry WS inside wsLoop()
+      if (now - lastBlink > 500) {
+        lastBlink = now;
+        ledOn = !ledOn;
+        setLED(ledOn);
+      }
       break;
 
     case CONNECTED:
-      // Waiting for cmd_start from server
+      setLED(true);
       break;
 
-    case VERIFY_DIE:
-    {
-      // 1) take test photo
+case VERIFY_DIE: {
+  // 1) Time the capture
+  uint32_t t0 = millis();
+  camera_fb_t *frame = captureFrame();
+  uint32_t t1 = millis();
+
+  if (!frame) {
+    Serial.printf("❌ VERIFY_DIE: captureFrame() returned NULL (took %u ms)\n", t1 - t0);
+    // Optionally retry or fall back
+    delay(100);
+    break;
+  } 
+
+  Serial.printf("✅ VERIFY_DIE: got frame (%u bytes) in %u ms\n", frame->len, t1 - t0);
+
+  // 2) Time the upload
+  uint32_t t2 = millis();
+  bool ok = uploadFrame(frame, 0);
+  uint32_t t3 = millis();
+  Serial.printf("→ uploadFrame(seq=0) returned %s in %u ms\n",
+                ok ? "OK" : "FAIL", t3 - t2);
+
+  // 3) Free the buffer
+  esp_camera_fb_return(frame);
+
+  // 4) Advance state
+  if (ok) {
+    seq = 1;
+    state = SPINNING;
+    Serial.println("↪ state=SPINNING");
+  } else {
+    state = CONNECTED;
+    Serial.println("↪ state=CONNECTED (retry VERIFY_DIE later)");
+  }
+  break;
+}
+
+
+
+    case SPINNING: {
+      Serial.println("Spinning...");
       auto frame = captureFrame();
-      // 2) upload & await photo_ack
-      if (uploadFrame(frame, /*seq*/0)) {
-        state = SPINNING;
-      } else {
-        state = CONNECTED;
+      if (frame) {
+        bool ok = uploadFrame(frame, seq);
+        esp_camera_fb_return(frame);
+        if (ok) {
+          sendWsMsg("{\"evt\":\"step_ok\",\"seq\":" + String(seq) + "}");
+          if (++seq >= TOTAL_ROLLS) {
+            state = FINISHED;
+          }
+        }
       }
       break;
     }
 
-    case SPINNING:
-      // Perform one spin‐capture cycle
-      // startSpin();
-      // waitForSpeed();
-      // stopSpin();
-      // delay(SETTLE_MS);
-      Serial.println("Spinning...");
-      {
-        auto frame = captureFrame();
-        if (uploadFrame(frame, /*seq*/1)) {
-          // tell server step_ok internally
-        } else {
-          // handle retry or abort
-        }
-      }
-      // Here you’d check if roll count done or server sent cmd_stop
-      break;
-
     case PAUSED:
-      // Motor off, waiting for cmd_resume or cmd_stop
+      // maybe flash LED slower here
       break;
 
     case FINISHED:
-      // Indicate done, LED off
       setLED(false);
-      // Wait for next cmd_start
+      sendWsMsg("{\"evt\":\"finished\"}");
+      // wait for next cmd_start
       break;
   }
+
+  delay(10);
 }
+

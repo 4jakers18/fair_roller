@@ -27,9 +27,13 @@ bool initCamera() {
   config.pixel_format    = PIXFORMAT_JPEG;      // we want JPEGs
 
   // Frame parameters
-  config.frame_size      = FRAMESIZE_VGA;       // 640×480
-  config.jpeg_quality    = 12;                  // 0–63 lower = better
-  config.fb_count        = 2;                   // use 2 frame buffers (needs PSRAM)
+   config.frame_size      = FRAMESIZE_VGA;       // 640×480
+ // config.frame_size= FRAMESIZE_UXGA;
+  config.jpeg_quality    = 4;                  // 0–63 lower = better
+  config.fb_count        = 1;                   // use 2 frame buffers (needs PSRAM)
+
+
+// Image gets cropped on the server side.
 
   // Tell driver to use PSRAM for buffers
   config.grab_mode       = CAMERA_GRAB_LATEST;
@@ -46,7 +50,7 @@ bool initCamera() {
 camera_fb_t* captureFrame() {
   // grab a frame
   camera_fb_t* fb = esp_camera_fb_get();
-  if (!fb) {
+  if (!fb ) {
     Serial.println("Frame buffer get failed");
     return nullptr;
   }
