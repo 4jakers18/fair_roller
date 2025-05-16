@@ -8,6 +8,6 @@ dicematcher/output_cnn/*
 *.bmp
 */venv/*
 ocr-processor/venv/*
-ocr-processor/uploads/*
-ocr-processor/__pycache__/
+*/uploads/*
+*/__pycache__/
 */.DS_Store
