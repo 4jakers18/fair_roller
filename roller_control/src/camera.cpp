@@ -33,7 +33,7 @@ bool initCamera() {
    config.frame_size      = frameSize;       // 640×480
  // config.frame_size= FRAMESIZE_UXGA;
   config.jpeg_quality    = jpegQuality;                  // 0–63 lower = better
-  config.fb_count        = 2;              // use 2 frame buffers (needs PSRAM)
+  config.fb_count        = 1;              // use 2 frame buffers (needs PSRAM)
 
 
 // Image gets cropped on the server side.

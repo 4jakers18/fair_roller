@@ -1,7 +1,8 @@
 # server_test.py
 
 from fastapi import FastAPI, WebSocket, Request, Query, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 from pathlib import Path
 from datetime import datetime
@@ -11,15 +12,23 @@ import io
 
 app = FastAPI()
 
-# —————————————————————————————————————
-# In-memory state
-# —————————————————————————————————————
+# ─── Serve UI and uploads ─────────────────────────────────────────────────────
 
-# Connected WS clients
-clients: set[WebSocket] = set()
+# Static assets (your HTML/JS/CSS) live in ./static
+app.mount("/static", StaticFiles(directory="static"), name="static")
+# Saved images in ./uploads
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
-# Default run config
-config: Dict[str, Any] = {
+# Root serves the UI shell
+@app.get("/", response_class=FileResponse)
+async def serve_index():
+    return FileResponse("static/index.html")
+
+# ─── In-memory state ──────────────────────────────────────────────────────────
+
+clients: set[WebSocket] = set()  # active WS clients
+
+config: Dict[str, Any] = {       # dynamic run configuration
     "sides":        6,           # number of die faces
     "rolls":       10,           # how many rolls to do
     "settle_ms":  100,           # settle time between spin & photo
@@ -27,16 +36,12 @@ config: Dict[str, Any] = {
     "jpeg_quality": 12           # 0–63 lower = better
 }
 
-# Ensure upload dir exists
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-# crop fraction of the short edge to keep (0.0–1.0)
-CROP_RATIO = 0.75
+CROP_RATIO = 0.75  # fraction of short edge to keep for center-square crop
 
-# —————————————————————————————————————
-# WebSocket endpoint
-# —————————————————————————————————————
+# ─── WebSocket endpoint ──────────────────────────────────────────────────────
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
@@ -47,18 +52,17 @@ async def websocket_endpoint(ws: WebSocket):
         while True:
             msg = await ws.receive_text()
             print(f"← WS recv: {msg}")
+            # Only handle the initial handshake
             if msg == "ws_hello":
                 await ws.send_json({"evt": "ready"})
-            else:
-                await ws.send_text(f"echo: {msg}")
+            # otherwise ignore – we broadcast events separately
     except Exception as ex:
         print("⚠️ WS disconnected:", ex)
     finally:
-        clients.remove(ws)
+        clients.discard(ws)
 
-# —————————————————————————————————————
-# Helper to broadcast a command to all clients
-# —————————————————————————————————————
+
+# ─── Broadcast helper ─────────────────────────────────────────────────────────
 
 async def broadcast(cmd: Dict[str, Any]):
     dead = []
@@ -68,11 +72,11 @@ async def broadcast(cmd: Dict[str, Any]):
         except:
             dead.append(ws)
     for ws in dead:
-        clients.remove(ws)
+        clients.discard(ws)
 
-# —————————————————————————————————————
-# Upload endpoint with center‐crop
-# —————————————————————————————————————
+# ─── Upload endpoint with center‐crop ─────────────────────────────────────────
+
+# server_test.py
 
 @app.post("/upload")
 async def upload_image(request: Request, seq: int = Query(...)):
@@ -80,37 +84,32 @@ async def upload_image(request: Request, seq: int = Query(...)):
     if not data:
         raise HTTPException(status_code=400, detail="No data received")
 
-    # decode JPEG
-    try:
-        img = Image.open(io.BytesIO(data))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid image data: {e}")
-
-    # compute center square crop
+    # decode and crop (as before)
+    img = Image.open(io.BytesIO(data))
     w, h = img.size
     side = int(min(w, h) * CROP_RATIO)
-    left   = (w - side) // 2
-    top    = (h - side) // 2
-    right  = left + side
-    bottom = top + side
-    cropped = img.crop((left, top, right, bottom))
+    left = (w - side) // 2
+    top  = (h - side) // 2
+    cropped = img.crop((left, top, left + side, top + side))
 
-    # save cropped JPEG
+    # 1) save the timestamped archive
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")[:-3]
     fn = UPLOAD_DIR / f"{ts}_seq{seq}_{side}x{side}.jpg"
-    try:
-        with open(fn, "wb") as f:
-            cropped.save(f, format="JPEG", quality=config["jpeg_quality"])
-    except Exception as ex:
-        print(f"❌ Failed to save {fn}: {ex}")
-        raise HTTPException(status_code=500, detail="Failed to save cropped image")
-
+    with open(fn, "wb") as f:
+        cropped.save(f, format="JPEG", quality=config["jpeg_quality"])
     print(f"← Saved cropped seq={seq} → {fn} ({side}×{side})")
+
+    # 2) also save a simple preview file named <seq>.jpg
+    preview_fn = UPLOAD_DIR / f"{seq}.jpg"
+    with open(preview_fn, "wb") as f2:
+        cropped.save(f2, format="JPEG", quality=config["jpeg_quality"])
+
+    # 3) broadcast the step_ok to all WS clients
+    await broadcast({"evt": "step_ok", "seq": seq})
+
     return {"status": "ok", "filename": str(fn)}
 
-# —————————————————————————————————————
-# REST: Read / update config
-# —————————————————————————————————————
+# ─── Config endpoints ─────────────────────────────────────────────────────────
 
 @app.get("/config")
 def get_config():
@@ -125,9 +124,7 @@ async def set_config(updates: Dict[str, Any]):
     print("⚙️ Config updated:", config)
     return config
 
-# —————————————————————————————————————
-# REST: Control commands
-# —————————————————————————————————————
+# ─── Control endpoints ────────────────────────────────────────────────────────
 
 @app.post("/start")
 async def start_run():
@@ -154,9 +151,7 @@ async def stop_run():
     print("→ cmd_stop sent")
     return {"status": "stopped"}
 
-# —————————————————————————————————————
-# Main
-# —————————————————————————————————————
+# ─── Main ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     uvicorn.run("server_test:app", host="0.0.0.0", port=80)

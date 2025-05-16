@@ -9,7 +9,7 @@ enum RunState {
   PAUSED,
   FINISHED
 };
-
+extern bool finishedSent;
 extern RunState state;
 
 extern int  seq;         // current roll index

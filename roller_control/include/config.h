@@ -7,7 +7,8 @@
 
 // camera/motor timing
 #define SETTLE_MS    100
-
+// 
+#define DISCARD_FRAMES  5
 // Wi-Fi credentials
 #include "secrets.h"   // used since this is a public repo <- be sure to make your own from the secrets.h.example
 

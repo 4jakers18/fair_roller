@@ -26,6 +26,8 @@ bool initCamera();
 extern int settleMs;    // from server
 extern int jpegQuality; // from server
 extern framesize_t frameSize; // from server
+extern int warmupCount; // counter for frames to discard at start of sequence
+
 // Grab one frame as a camera_fb_t*, or nullptr on failure.
 // Caller is responsible for calling esp_camera_fb_return() when done.
 camera_fb_t* captureFrame();

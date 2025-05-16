@@ -10,8 +10,8 @@ RunState state = DISCONNECTED;  // <-- the one-and-only definition
 // sequence counter
 int seq = 0;
 int totalRolls    = 10;      // from server
-
-
+bool finishedSent = false;
+int warmupCount = 0;
 
 // LED helper (assumes LED_PIN in config.h)
 static void setLED(bool on) {
@@ -48,6 +48,14 @@ void loop() {
       break;
 
 case VERIFY_DIE: {
+    if (warmupCount > 0) {
+    auto f = captureFrame();
+    if (f) esp_camera_fb_return(f);
+    Serial.printf("🛑 Discard warm-up frame, %d left\n", warmupCount);
+    warmupCount--;
+    delay(100);            // give time for the camera to settle
+    break;
+  }
   // 1) Time the capture
   uint32_t t0 = millis();
   camera_fb_t *frame = captureFrame();
@@ -109,8 +117,10 @@ case VERIFY_DIE: {
 
     case FINISHED:
       setLED(false);
-      sendWsMsg("{\"evt\":\"finished\"}");
-      // wait for next cmd_start
+      if (!finishedSent) {
+        sendWsMsg("{\"evt\":\"finished\"}");
+        finishedSent = true;
+      }
       break;
   }
 

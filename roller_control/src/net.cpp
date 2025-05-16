@@ -1,6 +1,7 @@
 // src/net.cpp
 
 #include "net.h"
+#include "camera.h"
 #include "config.h"
 #include "state.h"         // for state, seq, totalRolls
 #include <ArduinoJson.h>   // JSON parsing
@@ -31,12 +32,12 @@ static void handleWsEvent(WStype_t type, uint8_t* payload, size_t length) {
 
       const char* cmd = doc["cmd"] | "";
       if (strcmp(cmd, "start") == 0) {
-        // Extract dynamic run parameters (fall back to current values)
+        // Extract dynamic run parameters (with fallbacks)
         totalRolls  = doc["rolls"]        | totalRolls;
         settleMs    = doc["settle_ms"]    | settleMs;
         jpegQuality = doc["jpeg_quality"] | jpegQuality;
 
-        // Map frame_size string to ESP32 framesize_t
+        // Map frame_size string to framesize_t
         const char* fs = doc["frame_size"] | "VGA";
         if      (strcmp(fs, "QVGA") == 0) frameSize = FRAMESIZE_QVGA;
         else if (strcmp(fs, "UXGA") == 0) frameSize = FRAMESIZE_UXGA;
@@ -48,10 +49,11 @@ static void handleWsEvent(WStype_t type, uint8_t* payload, size_t length) {
           s->set_framesize(s, frameSize);
           s->set_quality(s, jpegQuality);
         }
-
-        // Reset sequence and advance to VERIFY_DIE
-        seq   = 0;
-        state = VERIFY_DIE;
+        // Reset for a new run
+        seq          = 0;
+        finishedSent = false;     // ← clear the “finished” flag here
+        warmupCount  = DISCARD_FRAMES;   // ← throw away the next x captures
+        state        = VERIFY_DIE;
         Serial.println("↪ state=VERIFY_DIE");
 
       } else if (strcmp(cmd, "pause") == 0) {
