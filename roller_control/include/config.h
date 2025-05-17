@@ -3,7 +3,7 @@
 
 // serial + LED
 #define MONITOR_BAUD 115200
-#define LED_PIN      4
+#define LED_PIN      D4
 
 // camera/motor timing
 #define SETTLE_MS    100

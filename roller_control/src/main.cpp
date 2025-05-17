@@ -1,124 +1,149 @@
 #include <Arduino.h>
-#include "state.h"    
+#include "state.h"
 #include "camera.h"
 #include "net.h"
 #include "config.h"
-#include "state.h"   
+#include "motor.h"
 
-RunState state = DISCONNECTED;  // <-- the one-and-only definition
 
-// sequence counter
-int seq = 0;
-int totalRolls    = 10;      // from server
-bool finishedSent = false;
-int warmupCount = 0;
+RunState state = DISCONNECTED;
 
-// LED helper (assumes LED_PIN in config.h)
+int    seq           = 0;
+int    totalRolls    = 10;
+bool   finishedSent  = false;
+int    warmupCount   = 0;
+
+static constexpr uint8_t  MOTOR_SPEED = 200;
+static constexpr uint32_t SPIN_MS     = 500;
+
+// LED / PWM settings
+static constexpr int LEDC_CHANNEL  = 2;
+static constexpr int LEDC_FREQ     = 500;          // 500 Hz for breathing
+static constexpr int LEDC_RES      = 8;            // 8-bit
+static int           ledBrightness = 0;
+static int           ledFadeAmount = 4;           // change per loop
+
+
 static void setLED(bool on) {
-  digitalWrite(LED_PIN, on ? HIGH : LOW);
+  // full brightness or off
+  ledcWrite(LEDC_CHANNEL, on ? 128 : 0);
 }
 
-// LED heartbeat
-static uint32_t lastBlink = 0;
-static bool     ledOn     = false;
 
 void setup() {
   Serial.begin(MONITOR_BAUD);
-  pinMode(LED_PIN, OUTPUT);
-  setLED(false);
+
+  // Camera, network, motor
   initCamera();
   initNetwork();
+  initMotor();
+
+  // LED PWM for breathing/solid
+  ledcSetup(LEDC_CHANNEL, LEDC_FREQ, LEDC_RES);
+  ledcAttachPin(LED_PIN, LEDC_CHANNEL);
+  setLED(true);
+
+  // Initialize state
+  state = DISCONNECTED;
 }
 
-void loop() {
-  wsLoop();  // pumps WS + invokes your handleWsEvent()
+//  Main Loop 
 
+void loop() {
+  wsLoop();  
   uint32_t now = millis();
+
   switch (state) {
+
     case DISCONNECTED:
-      if (now - lastBlink > 500) {
-        lastBlink = now;
-        ledOn = !ledOn;
-        setLED(ledOn);
+      // breathing LED
+      ledBrightness += ledFadeAmount;
+      if (ledBrightness <= 0 || ledBrightness >= 255) {
+        ledFadeAmount = -ledFadeAmount;
+        ledBrightness = constrain(ledBrightness, 0, 255);
       }
+      ledcWrite(LEDC_CHANNEL, ledBrightness);
       break;
 
     case CONNECTED:
+      // solid on
       setLED(true);
       break;
 
-case VERIFY_DIE: {
-    if (warmupCount > 0) {
-    auto f = captureFrame();
-    if (f) esp_camera_fb_return(f);
-    Serial.printf("🛑 Discard warm-up frame, %d left\n", warmupCount);
-    warmupCount--;
-    delay(100);            // give time for the camera to settle
-    break;
-  }
-  // 1) Time the capture
-  uint32_t t0 = millis();
-  camera_fb_t *frame = captureFrame();
-  uint32_t t1 = millis();
+    case VERIFY_DIE: {
+      if (warmupCount > 0) {
+        auto f = captureFrame();
+        if (f) esp_camera_fb_return(f);
+        Serial.printf("🛑 Discard warm-up frame, %d left\n", warmupCount);
+        warmupCount--;
+        delay(100);
+        break;
+      }
+      // capture & upload test photo
+      uint32_t t0 = millis();
+      auto frame = captureFrame();
+      uint32_t t1 = millis();
+      if (!frame) {
+        Serial.printf("❌ VERIFY_DIE: no frame (%ums)\n", t1 - t0);
+        delay(100);
+        break;
+      }
+      Serial.printf("✅ VERIFY_DIE: %u bytes in %u ms\n", frame->len, t1 - t0);
 
-  if (!frame) {
-    Serial.printf("❌ VERIFY_DIE: captureFrame() returned NULL (took %u ms)\n", t1 - t0);
-    // Optionally retry or fall back
-    delay(100);
-    break;
-  } 
+      uint32_t t2 = millis();
+      bool ok = uploadFrame(frame, 0);
+      uint32_t t3 = millis();
+      Serial.printf("→ uploadFrame(0) %s in %u ms\n", ok?"OK":"FAIL", t3 - t2);
+      esp_camera_fb_return(frame);
 
-  Serial.printf("✅ VERIFY_DIE: got frame (%u bytes) in %u ms\n", frame->len, t1 - t0);
-
-  // 2) Time the upload
-  uint32_t t2 = millis();
-  bool ok = uploadFrame(frame, 0);
-  uint32_t t3 = millis();
-  Serial.printf("→ uploadFrame(seq=0) returned %s in %u ms\n",
-                ok ? "OK" : "FAIL", t3 - t2);
-
-  // 3) Free the buffer
-  esp_camera_fb_return(frame);
-
-  // 4) Advance state
-  if (ok) {
-    seq = 1;
-    state = SPINNING;
-    Serial.println("↪ state=SPINNING");
-  } else {
-    state = CONNECTED;
-    Serial.println("↪ state=CONNECTED (retry VERIFY_DIE later)");
-  }
-  break;
-}
-
-
+      if (ok) {
+        seq = 1;
+        state = SPINNING;
+        Serial.println("↪ state=SPINNING");
+      } else {
+        state = CONNECTED;
+        Serial.println("↪ state=CONNECTED");
+      }
+      break;
+    }
 
     case SPINNING: {
-      Serial.println("Spinning...");
+      setLED(true);
+      Serial.printf("🔄 SPINNING %d/%d\n", seq, totalRolls);
+
+      // spin → coast
+      spin(MOTOR_SPEED, SPIN_MS, CW);
+
+      delay(settleMs);
       auto frame = captureFrame();
       if (frame) {
-        delay(settleMs); 
-        bool ok = uploadFrame(frame, seq);
-        esp_camera_fb_return(frame);
-        if (ok) {
+        if (uploadFrame(frame, seq)) {
           sendWsMsg("{\"evt\":\"step_ok\",\"seq\":" + String(seq) + "}");
-          if (++seq >= totalRolls) {
+          seq++;
+          if (seq >= totalRolls) {
             state = FINISHED;
           }
+        } else {
+          Serial.println("⚠️ uploadFrame failed");
         }
+        esp_camera_fb_return(frame);
+      } else {
+        Serial.println("❌ captureFrame failed");
       }
       break;
     }
 
     case PAUSED:
-      // maybe flash LED slower here
+      // actively brake and hold
+      brake();
       break;
 
     case FINISHED:
-      setLED(false);
+      setLED(true);
+      brake();
       if (!finishedSent) {
         sendWsMsg("{\"evt\":\"finished\"}");
+        Serial.println("✅ FINISHED");
         finishedSent = true;
       }
       break;
@@ -126,4 +151,3 @@ case VERIFY_DIE: {
 
   delay(10);
 }
-
